@@ -24,10 +24,10 @@ RUN pip install --no-cache-dir \
 # Copy the core-backend directory contents into the container at /app/core-backend
 COPY core-backend /app/core-backend
 
-# Expose port 7860
-EXPOSE 7860
+# Expose port 10000
+EXPOSE 10000
 
 # Command to run the application
 # We need to set the PYTHONPATH so that core-backend is recognized as a package
 ENV PYTHONPATH=/app
-CMD ["uvicorn", "core-backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "core-backend.main:app", "--host", "0.0.0.0", "--port", "10000"]
