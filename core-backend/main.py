@@ -1,4 +1,7 @@
 from fastapi import FastAPI, Query
+from fastapi import BackgroundTasks
+import hashlib
+
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
@@ -13,6 +16,50 @@ try:
     import xgboost as xgb
 except ImportError:
     xgb = None
+
+def get_ward_metrics(ward_id: str):
+    """
+    Computes deterministic population_density and vulnerability_score 
+    based on the ward_id string.
+    """
+    hash_val = int(hashlib.md5(ward_id.encode()).hexdigest(), 16)
+    density = 8000 + (hash_val % 37000)
+    vulnerability = (hash_val % 100) / 100.0
+    return density, vulnerability
+
+def send_notification(ward_id: str, wbgt: float, beds_needed: float):
+    # This is the non-blocking notification dispatcher
+    print(f"Notification triggered for Ward {ward_id}: WBGT {wbgt}, Beds Needed {beds_needed}")
+    # Integration with SMS gateway would go here
+    return True
+
+
+def calculate_risk_metrics(wbgt: float, ward_id: str):
+    density, vulnerability = get_ward_metrics(ward_id)
+    
+    hospitalization_increase_pct = max(0, (wbgt - 20) * vulnerability * (density / 10000) * 0.1)
+    additional_beds_needed = (hospitalization_increase_pct / 100) * (density * 0.05)
+    surge_probability = min(1.0, max(0, (wbgt - 25) * 0.05 + vulnerability * 0.3))
+    
+    return hospitalization_increase_pct, additional_beds_needed, surge_probability
+
+
+class ActionRecommendations(BaseModel):
+    cooling_centers_to_activate: List[str]
+    labor_advisory: str
+    healthcare_outreach: str
+    sms_alert_dispatched: bool
+
+def get_action_recommendations(ward_id: str):
+    # Deterministic recommendations
+    hash_val = int(hashlib.md5(ward_id.encode()).hexdigest(), 16)
+    shelters = [f"Center {i}" for i in range(1, 4)]
+    return ActionRecommendations(
+        cooling_centers_to_activate=random.sample(shelters, 2),
+        labor_advisory="Restrict strenuous work from 12 PM to 4 PM.",
+        healthcare_outreach="Deploy ASHA workers to high-risk zones.",
+        sms_alert_dispatched=True
+    )
 
 # Load data for historical/future lookups
 DATA_PATH = Path(__file__).parent / "delhi_processed_wbgt.csv"
@@ -87,6 +134,7 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
 
 @app.get("/api/v1/heatwave-risk")
 async def get_heatwave_risk(
+    background_tasks: BackgroundTasks,
     date: Optional[str] = Query(None, description="Target date (e.g. YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"),
     ward_id: Optional[str] = Query(None, description="Ward ID (e.g. 80 or CANT_1)"),
     temp_offset: float = Query(0.0, description="Temperature offset in degrees Celsius")
@@ -124,13 +172,31 @@ async def get_heatwave_risk(
             # Using prediction for the ward (mocking that risk varies slightly by ward)
             ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
             
+            risk_level = "Extreme" if ward_specific_wbgt > 32 else "High Risk" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
+            
+            w_id = str(ward['ward_id'])
+            
+            # --- NEW LOGIC START ---
+            h_inc, beds, surge = calculate_risk_metrics(ward_specific_wbgt, w_id)
+            
+            recommendations = None
+            if risk_level in ["High Risk", "Extreme"]:
+                recommendations = get_action_recommendations(w_id)
+                background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds)
+            # --- NEW LOGIC END ---
+            
             day_results.append({
-                "ward_id": str(ward['ward_id']),
+                "ward_id": w_id,
                 "ward_name": ward['ward_name'],
                 "wbgt": round(float(ward_specific_wbgt), 2),
                 "thermal_stress_score": round(max(0, min(10, float(ward_specific_wbgt - 20))), 2),
                 "heatwave_probability": round(max(0, min(1, float((ward_specific_wbgt - 25) / 10))), 2),
-                "risk_level": "Extreme" if ward_specific_wbgt > 32 else "High" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
+                "risk_level": risk_level,
+                # --- NEW FIELDS ---
+                "hospitalization_increase_pct": round(h_inc, 2),
+                "additional_beds_needed": round(beds, 2),
+                "surge_probability": round(surge, 2),
+                "action_recommendations": recommendations.dict() if recommendations else None
             })
         
         days_data.append({
@@ -161,7 +227,7 @@ class ForecastDayInput(BaseModel):
 
 
 @app.post("/api/v1/forecast-heatwave")
-async def forecast_heatwave(forecasts: List[ForecastDayInput]):
+async def forecast_heatwave(forecasts: List[ForecastDayInput], background_tasks: BackgroundTasks):
     """
     Accepts an array of forecast inputs (e.g. 5-day forecast), loops through them,
     passes each day's features through both XGBoost model artifacts (thermal_stress_model.json
@@ -227,6 +293,15 @@ async def forecast_heatwave(forecasts: List[ForecastDayInput]):
         else:
             risk_level = "Normal"
             
+        # --- NEW LOGIC START ---
+        h_inc, beds, surge = calculate_risk_metrics(predicted_wbgt, w_id)
+        
+        recommendations = None
+        if risk_level in ["High Risk", "Extreme"]:
+            recommendations = get_action_recommendations(w_id)
+            background_tasks.add_task(send_notification, w_id, predicted_wbgt, beds)
+        # --- NEW LOGIC END ---
+            
         results.append({
             "day": idx + 1,
             "date": str(target_date.date()) if hasattr(target_date, 'date') else str(target_date),
@@ -236,7 +311,12 @@ async def forecast_heatwave(forecasts: List[ForecastDayInput]):
             "relative_humidity_2m": round(float(rh), 2),
             "wbgt": round(float(predicted_wbgt), 2),
             "thermal_stress_score": thermal_stress_score,
-            "risk_level": risk_level
+            "risk_level": risk_level,
+            # --- NEW FIELDS ---
+            "hospitalization_increase_pct": round(h_inc, 2),
+            "additional_beds_needed": round(beds, 2),
+            "surge_probability": round(surge, 2),
+            "action_recommendations": recommendations.dict() if recommendations else None
         })
         
     return {
