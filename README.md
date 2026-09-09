@@ -8,6 +8,7 @@ Extreme urban heatwaves are no longer just meteorological events—they are crit
 [PROJECT NAME] bridges this gap by shifting the paradigm from passive weather tracking to proactive human protection. Operating at a granular, ward-level resolution, our system combines advanced environmental indices (WBGT, UTCI, and Heat Index) with predictive clinical analytics to safeguard urban populations and optimize municipal emergency response.
 
 🚀 Key Features & Capabilities
+
 ->Granular GIS Ward-Mapping: Interactive spatial grid tracking micro-climate variations and heat vulnerability hotspots across the city.
 
 ->Advanced Thermal Metrics: Goes beyond standard ambient temperature to calculate Wet-Bulb Globe Temperature (WBGT) and Universal Thermal Climate Index (UTCI).
@@ -19,6 +20,7 @@ Extreme urban heatwaves are no longer just meteorological events—they are crit
 ->Hospital Bed Surge Management: Real-time data synchronization to help healthcare authorities prepare triage capacity before emergency rooms are overwhelmed.
 
 🛠️ System Architecture & Workflow
+
 ->Data Ingestion: Gathers real-time meteorological inputs, humidity levels, solar radiation, and urban density data.
 
 ->Processing Engine: Evaluates physiological thermal stress thresholds against historical health outcomes.
