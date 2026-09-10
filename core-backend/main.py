@@ -233,11 +233,14 @@ async def get_heatwave_risk(
             day_results = []
             for _, ward in target_wards.iterrows():
                 # Using prediction for the ward (mocking that risk varies slightly by ward)
-                ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
+                # Use a deterministic seed based on ward_id and date for reproducibility
+                w_id = str(ward['ward_id'])
+                seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
+                seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+                rng = random.Random(seed)
+                ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
                 
                 risk_level = "Extreme" if ward_specific_wbgt > 32 else "High Risk" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
-                
-                w_id = str(ward['ward_id'])
                 
                 # --- NEW LOGIC START ---
                 try:
@@ -315,7 +318,11 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             prediction = predict_wbgt_safely(features)
             
             # Using prediction for the ward (mocking that risk varies slightly by ward)
-            ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
+            # Use a deterministic seed based on ward_id and date for reproducibility
+            seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
+            seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+            rng = random.Random(seed)
+            ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
             
             # 2. Risk Calculation
             try:
