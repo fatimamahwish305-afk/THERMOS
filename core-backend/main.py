@@ -15,6 +15,23 @@ import random
 import numpy as np
 from pydantic import BaseModel, Field
 
+
+def convert_numpy_types(obj):
+    """
+    Recursively converts numpy types and pandas types to native Python types for JSON serialization.
+    """
+    if isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (pd.Timestamp, datetime.datetime, datetime.date)):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    return obj
+
 try:
     import xgboost as xgb
 except ImportError:
@@ -255,7 +272,7 @@ async def get_heatwave_risk(
                 "results": day_results
             })
                 
-        return {"data": days_data, "metadata": {"start_date": start_date, "days": 5, "temp_offset": temp_offset}}
+        return convert_numpy_types({"data": days_data, "metadata": {"start_date": start_date, "days": 5, "temp_offset": temp_offset}})
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={'error': str(e), 'traceback': traceback.format_exc()})
@@ -358,6 +375,6 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                 "action_recommendations": recommendations.dict() if recommendations else None
             })
             
-    return {"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}}
+    return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
 
 
