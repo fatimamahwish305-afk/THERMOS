@@ -91,8 +91,10 @@ if xgb is not None and JSON_MODEL_PATH.exists():
     thermal_stress_model.load_model(str(JSON_MODEL_PATH))
 
 # Load canonical wards
-WARDS_PATH = Path(__file__).parent / "canonical_ward_ids.csv"
+# Load enriched wards
+WARDS_PATH = Path(__file__).parent / "delhi_ward_population_vulnerability_v3.csv"
 wards_df = pd.read_csv(WARDS_PATH)
+
 
 def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
     """
@@ -245,27 +247,51 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             # Using prediction for the ward (mocking that risk varies slightly by ward)
             ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
             
-            risk_level = "Extreme" if ward_specific_wbgt > 32 else "High Risk" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
+            # 2. Risk Calculation
+            hazard_index = min(50, max(0, (ward_specific_wbgt - 15) * 2))
+            vulnerability_weight = float(ward['vulnerability_weight'])
+            scaling_factor = 1.2
+            risk_score = min(100, hazard_index * vulnerability_weight * scaling_factor)
             
-            h_inc, beds, surge = calculate_risk_metrics(ward_specific_wbgt, w_id)
-            
+            # 3. Resource Estimation
+            if risk_score < 25:
+                risk_tier = "Low"
+                beds_needed = 0
+                centers_to_activate = 1
+                priority = "Low"
+            elif risk_score < 50:
+                risk_tier = "Moderate"
+                beds_needed = 10
+                centers_to_activate = 2
+                priority = "Medium"
+            elif risk_score < 75:
+                risk_tier = "Severe"
+                beds_needed = 50
+                centers_to_activate = 3
+                priority = "High"
+            else:
+                risk_tier = "Critical"
+                beds_needed = 100
+                centers_to_activate = 5
+                priority = "Emergency"
+
+            # 4. Recommendations
             recommendations = None
-            if risk_level in ["High Risk", "Extreme"]:
+            if risk_tier in ["Severe", "Critical"]:
                 recommendations = get_action_recommendations(w_id)
-                background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds)
+                background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds_needed)
             
             results.append({
                 "ward_id": w_id,
                 "ward_name": w_name,
                 "forecast_day": i + 1,
                 "wbgt": round(float(ward_specific_wbgt), 2),
-                "thermal_stress_score": round(max(0, min(10, float(ward_specific_wbgt - 20))), 2),
-                "heatwave_probability": round(max(0, min(1, float((ward_specific_wbgt - 25) / 10))), 2),
-                "risk_level": risk_level,
-                "health_impact_forecast": {
-                    "hospitalization_increase_pct": round(h_inc, 2),
-                    "additional_beds_needed": round(beds, 2),
-                    "surge_probability": round(surge, 2)
+                "risk_score": round(float(risk_score), 2),
+                "risk_tier": risk_tier,
+                "resource_estimates": {
+                    "required_heat_stroke_beds": beds_needed,
+                    "cooling_centers_count": centers_to_activate,
+                    "ambulance_dispatch_priority": priority
                 },
                 "action_recommendations": recommendations.dict() if recommendations else None
             })

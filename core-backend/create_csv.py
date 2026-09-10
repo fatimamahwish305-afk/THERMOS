@@ -1,0 +1,74 @@
+import pandas as pd
+import numpy as np
+
+def create_base_csv():
+    # Split the data into smaller chunks to avoid editor limits
+    part1 = """ward_id,ward_name,population_density,vulnerability_weight,data_source
+CANT_1,DELHI CANTT CHARGE 1,35873.9,1.136,estimated_nn_by_area
+CANT_2,DELHI CANTT CHARGE 2,9390.4,1.136,estimated_nn_by_area
+CANT_4,DELHI CANTT CHARGE 4,9390.4,1.136,estimated_nn_by_area
+CANT_5,DELHI CANTT CHARGE 5,15222.3,1.136,estimated_nn_by_area
+CANT_6,DELHI CANTT CHARGE 6,453.4,1.136,estimated_nn_by_area
+CANT_7,DELHI CANTT CHARGE 7,10936.2,1.136,estimated_nn_by_area
+CANT_8,DELHI CANTT CHARGE 8,24832.2,1.136,estimated_nn_by_area
+CANT_3,DELHI CANTT CHARGE 3,4978.9,1.136,estimated_nn_by_area
+NDMC_1,NDMC CHARGE 1,10936.2,1.136,estimated_nn_by_area
+NDMC_2,NDMC CHARGE 2,29101.6,1.136,estimated_nn_by_area
+NDMC_3,NDMC CHARGE 3,5250.1,1.136,estimated_nn_by_area
+NDMC_4,NDMC CHARGE 4,14045.0,1.136,estimated_nn_by_area
+NDMC_5,NDMC CHARGE 5,9390.4,1.136,estimated_nn_by_area
+NDMC_7,NDMC CHARGE 7,19324.2,1.136,estimated_nn_by_area
+NDMC_8,NDMC CHARGE 8,46485.2,1.136,estimated_nn_by_area
+NDMC_9,NDMC CHARGE 9,1302.8,1.136,estimated_nn_by_area
+NDMC_6,NDMC CHARGE 6,34577.1,1.136,estimated_nn_by_area
+80,CHANDNI CHOWK,14626.8,1.052,census_2011_real
+81,MINTO ROAD,14035.6,1.05,census_2011_real
+82,KUCHA PANDIT,139504.9,1.507,census_2011_real
+83,BAZAR SITARAM,116642.4,1.423,census_2011_real
+85,IDGAH ROAD,56545.4,1.204,census_2011_real
+108,KHYALA,41444.9,1.149,census_2011_real
+109,JANAK PURI NORTH,16059.7,1.057,census_2011_real
+11,MUKHERJEE NAGAR,20419.5,1.073,census_2011_real
+117,JANAK PURI WEST,22147.5,1.079,census_2011_real
+118,JANAK PURI SOUTH,18704.4,1.067,census_2011_real
+119,MILAP NAGAR,43748.8,1.158,census_2011_real
+120,SITA PURI,82268.9,1.298,census_2011_real
+133,CHHAWLA,1196.8,1.136,estimated_nn_by_area
+134,NANGLI SAKRAVATI,438.4,1.136,estimated_nn_by_area
+135,KAKRAULA,10941.8,1.038,census_2011_real
+140,KHERA,1196.8,1.136,estimated_nn_by_area
+241,DILSHAD GARDEN,23486.5,1.084,census_2011_real
+242,NEW SEEMA PURI,63975.5,1.231,census_2011_real
+243,NAND NAGRI,17318.1,1.061,census_2011_real
+244,SUNDER NAGARI,65066.8,1.235,census_2011_real
+245,DURGA PURI,49003.4,1.177,census_2011_real
+246,ASHOK NAGAR,53591.2,1.194,census_2011_real
+247,RAM NAGAR,36217.9,1.13,census_2011_real
+248,WELCOME COLONY,49488.6,1.179,census_2011_real
+249,CHAUHAN BANGER,50051.0,1.181,census_2011_real
+250,ZAFFRABAD,98321.0,1.357,census_2011_real
+252,MAUJPUR,86787.8,1.315,census_2011_real
+255,GHONDA,76386.8,1.277,census_2011_real
+256,YAMUNA VIHAR,29843.8,1.107,census_2011_real
+257,SUBHASH MOHALLA,98396.9,1.357,census_2011_real
+258,KARDAM PURI,24271.4,1.087,census_2011_real
+259,JANTA COLONY,74014.0,1.268,census_2011_real
+260,BABAR PUR,26254.4,1.094,census_2011_real
+261,JIWANPUR,23215.8,1.136,estimated_nn_by_area
+262,GOKALPUR,46600.2,1.136,estimated_nn_by_area
+263,SABOLI,29101.6,1.104,census_2011_real
+264,HARSH VIHAR,13884.3,1.049,census_2011_real
+265,SHIV VIHAR,30408.7,1.136,estimated_nn_by_area
+266,KARAWAL NAGAR EAST,51965.1,1.136,estimated_nn_by_area
+268,MUSTAFABAD,35873.9,1.136,estimated_nn_by_area
+269,KHAJOORI KHAS,44103.7,1.136,estimated_nn_by_area
+271,KARAWAL NAGAR WEST,25193.5,1.136,estimated_nn_by_area
+272,SONIA VIHAR,6697.8,1.136,estimated_nn_by_area"""
+    
+    # Rest of the data (will add in subsequent steps, but let's try to do it with just this for now as a test, 
+    # but the task requires ALL. I will use a different approach.)
+    
+    with open("delhi_ward_population_vulnerability_v2.csv", "w") as f:
+        f.write(part1)
+
+create_base_csv()
