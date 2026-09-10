@@ -84,9 +84,35 @@ app.add_middleware(
 
 import joblib
 
+def load_model_safely():
+    """
+    Safely loads the XGBoost model with fallback.
+    """
+    model_path = Path(__file__).parent / "wbgt_risk_model.joblib"
+    try:
+        if model_path.exists():
+            return joblib.load(model_path)
+        else:
+            print("Model file not found. Falling back to heuristic.")
+            return None
+    except Exception as e:
+        print(f"Error loading model: {e}. Falling back to heuristic.")
+        return None
+
 # Load model
-MODEL_PATH = Path(__file__).parent / "wbgt_risk_model.joblib"
-model = joblib.load(MODEL_PATH)
+model = load_model_safely()
+def predict_wbgt_safely(features):
+    """
+    Predicts WBGT safely with heuristic fallback.
+    """
+    if model is not None:
+        try:
+            return model.predict(features)[0]
+        except Exception as e:
+            print(f"Prediction failed: {e}. Falling back to heuristic.")
+    
+    # Heuristic fallback: mean of historical WBGT
+    return historical_df['calculated_wbgt'].mean()
 
 JSON_MODEL_PATH = Path(__file__).parent / "thermal_stress_model.json"
 thermal_stress_model = None
@@ -180,7 +206,7 @@ async def get_heatwave_risk(
         features = get_weather_features(current_date, temp_offset)
         
         # Prediction
-        prediction = model.predict(features)[0]
+        prediction = predict_wbgt_safely(features)
         
         day_results = []
         for _, ward in target_wards.iterrows():
@@ -255,7 +281,7 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             features = get_weather_features(current_date, request.temp_offset)
             
             # Prediction
-            prediction = model.predict(features)[0]
+            prediction = predict_wbgt_safely(features)
             
             # Using prediction for the ward (mocking that risk varies slightly by ward)
             ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
