@@ -37,7 +37,11 @@ def send_notification(ward_id: str, wbgt: float, beds_needed: float):
 def calculate_risk_metrics(wbgt: float, ward_id: str):
     density, vulnerability = get_ward_metrics(ward_id)
     
-    hospitalization_increase_pct = max(0, (wbgt - 20) * vulnerability * (density / 10000) * 0.1)
+    # Increased sensitivity for high WBGT values to ensure realistic thermal stress scores
+    # Factor increases dynamically as WBGT exceeds 30°C
+    factor = 1.0 + max(0, (wbgt - 30) * 0.5)
+    hospitalization_increase_pct = max(0, (wbgt - 20) * vulnerability * (density / 10000) * factor)
+    
     additional_beds_needed = (hospitalization_increase_pct / 100) * (density * 0.05)
     surge_probability = min(1.0, max(0, (wbgt - 25) * 0.05 + vulnerability * 0.3))
     
@@ -100,22 +104,31 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
     """
     Fetches or simulates weather features for a given date with robust fallback and out-of-bounds handling.
     """
-    min_ts = historical_df['timestamp'].min()
-    max_ts = historical_df['timestamp'].max()
-
-    # Out-of-bounds handling
-    if target_date < min_ts:
-        # Fallback to earliest available data for past out-of-bounds dates
-        features = historical_df.iloc[0].copy()
-    elif target_date > max_ts:
-        # Fallback to latest available data for future out-of-bounds dates
-        features = historical_df.iloc[-1].copy()
-    elif target_date in historical_df['timestamp'].values:
-        features = historical_df[historical_df['timestamp'] == target_date].iloc[0].copy()
+    # 1. Try to find a match for the same month, and hour in any available year
+    potential_matches = historical_df[
+        (historical_df['month'] == target_date.month) & 
+        (historical_df['hour'] == target_date.hour)
+    ]
+    if not potential_matches.empty:
+        features = potential_matches.iloc[-1].copy()
     else:
-        # Nearest neighbor fallback for missing intermediate dates
-        idx = (historical_df['timestamp'] - target_date).abs().argsort().iloc[0]
-        features = historical_df.iloc[idx].copy()
+        # Fallback to existing logic
+        min_ts = historical_df['timestamp'].min()
+        max_ts = historical_df['timestamp'].max()
+
+        # Out-of-bounds handling
+        if target_date < min_ts:
+            # Fallback to earliest available data for past out-of-bounds dates
+            features = historical_df.iloc[0].copy()
+        elif target_date > max_ts:
+            # Fallback to latest available data for future out-of-bounds dates
+            features = historical_df.iloc[-1].copy()
+        elif target_date in historical_df['timestamp'].values:
+            features = historical_df[historical_df['timestamp'] == target_date].iloc[0].copy()
+        else:
+            # Nearest neighbor fallback for missing intermediate dates
+            idx = (historical_df['timestamp'] - target_date).abs().argsort().iloc[0]
+            features = historical_df.iloc[idx].copy()
     
     # Feature set for model:
     # ["temperature_2m","relative_humidity_2m","wind_speed_10m","shortwave_radiation","hour","day_of_year","month","temp_lag_24","humidity_lag_24"]
