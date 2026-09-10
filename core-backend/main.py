@@ -1,5 +1,8 @@
 from fastapi import FastAPI, Query
 from fastapi import BackgroundTasks
+from fastapi.responses import JSONResponse
+import traceback
+
 import hashlib
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -180,78 +183,82 @@ async def get_heatwave_risk(
     ward_id: Optional[str] = Query(None, description="Ward ID (e.g. 80 or CANT_1)"),
     temp_offset: float = Query(0.0, description="Temperature offset in degrees Celsius")
 ):
-    days_data = []
-    
-    # Filter wards if ward_id is provided
-    target_wards = wards_df.copy()
-    if ward_id:
-        clean_ward_id = str(ward_id).strip()
-        target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == clean_ward_id]
+    try:
+        days_data = []
         
-    # Determine start date with robust exception handling for invalid date inputs
-    if date:
-        try:
-            start_date = pd.to_datetime(date)
-            if pd.isna(start_date):
-                start_date = historical_df['timestamp'].max()
-        except (ValueError, TypeError, pd.errors.ParserError):
-            start_date = historical_df['timestamp'].max()
-    else:
-        start_date = historical_df['timestamp'].max()
-    
-    # Loop through 5-day window
-    for i in range(5):
-        current_date = start_date + datetime.timedelta(days=i)
-        
-        # Get features
-        features = get_weather_features(current_date, temp_offset)
-        
-        # Prediction
-        prediction = predict_wbgt_safely(features)
-        
-        day_results = []
-        for _, ward in target_wards.iterrows():
-            # Using prediction for the ward (mocking that risk varies slightly by ward)
-            ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
+        # Filter wards if ward_id is provided
+        target_wards = wards_df.copy()
+        if ward_id:
+            clean_ward_id = str(ward_id).strip()
+            target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == clean_ward_id]
             
-            risk_level = "Extreme" if ward_specific_wbgt > 32 else "High Risk" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
-            
-            w_id = str(ward['ward_id'])
-            
-            # --- NEW LOGIC START ---
+        # Determine start date with robust exception handling for invalid date inputs
+        if date:
             try:
-                h_inc, beds, surge = calculate_risk_metrics(ward_specific_wbgt, w_id)
-                
-                recommendations = None
-                if risk_level in ["High Risk", "Extreme"]:
-                    recommendations = get_action_recommendations(w_id)
-                    background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds)
-            except Exception as e:
-                print(f"Error calculating risk metrics for ward {w_id}: {e}")
-                h_inc, beds, surge = 0.0, 0.0, 0.0
-                recommendations = None
-            # --- NEW LOGIC END ---
-            
-            day_results.append({
-                "ward_id": w_id,
-                "ward_name": ward['ward_name'],
-                "wbgt": round(float(ward_specific_wbgt), 2),
-                "thermal_stress_score": round(max(0, min(10, float(ward_specific_wbgt - 20))), 2),
-                "heatwave_probability": round(max(0, min(1, float((ward_specific_wbgt - 25) / 10))), 2),
-                "risk_level": risk_level,
-                # --- NEW FIELDS ---
-                "hospitalization_increase_pct": round(h_inc, 2),
-                "additional_beds_needed": round(beds, 2),
-                "surge_probability": round(surge, 2),
-                "action_recommendations": recommendations.dict() if recommendations else None
-            })
+                start_date = pd.to_datetime(date)
+                if pd.isna(start_date):
+                    start_date = historical_df['timestamp'].max()
+            except (ValueError, TypeError, pd.errors.ParserError):
+                start_date = historical_df['timestamp'].max()
+        else:
+            start_date = historical_df['timestamp'].max()
         
-        days_data.append({
-            "date": current_date.strftime("%Y-%m-%d"),
-            "results": day_results
-        })
+        # Loop through 5-day window
+        for i in range(5):
+            current_date = start_date + datetime.timedelta(days=i)
             
-    return {"data": days_data, "metadata": {"start_date": start_date, "days": 5, "temp_offset": temp_offset}}
+            # Get features
+            features = get_weather_features(current_date, temp_offset)
+            
+            # Prediction
+            prediction = predict_wbgt_safely(features)
+            
+            day_results = []
+            for _, ward in target_wards.iterrows():
+                # Using prediction for the ward (mocking that risk varies slightly by ward)
+                ward_specific_wbgt = prediction + random.uniform(-0.5, 0.5)
+                
+                risk_level = "Extreme" if ward_specific_wbgt > 32 else "High Risk" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
+                
+                w_id = str(ward['ward_id'])
+                
+                # --- NEW LOGIC START ---
+                try:
+                    h_inc, beds, surge = calculate_risk_metrics(ward_specific_wbgt, w_id)
+                    
+                    recommendations = None
+                    if risk_level in ["High Risk", "Extreme"]:
+                        recommendations = get_action_recommendations(w_id)
+                        background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds)
+                except Exception as e:
+                    print(f"Error calculating risk metrics for ward {w_id}: {e}")
+                    h_inc, beds, surge = 0.0, 0.0, 0.0
+                    recommendations = None
+                # --- NEW LOGIC END ---
+                
+                day_results.append({
+                    "ward_id": w_id,
+                    "ward_name": ward['ward_name'],
+                    "wbgt": round(float(ward_specific_wbgt), 2),
+                    "thermal_stress_score": round(max(0, min(10, float(ward_specific_wbgt - 20))), 2),
+                    "heatwave_probability": round(max(0, min(1, float((ward_specific_wbgt - 25) / 10))), 2),
+                    "risk_level": risk_level,
+                    # --- NEW FIELDS ---
+                    "hospitalization_increase_pct": round(h_inc, 2),
+                    "additional_beds_needed": round(beds, 2),
+                    "surge_probability": round(surge, 2),
+                    "action_recommendations": recommendations.dict() if recommendations else None
+                })
+            
+            days_data.append({
+                "date": current_date.strftime("%Y-%m-%d"),
+                "results": day_results
+            })
+                
+        return {"data": days_data, "metadata": {"start_date": start_date, "days": 5, "temp_offset": temp_offset}}
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={'error': str(e), 'traceback': traceback.format_exc()})
 
 
 
