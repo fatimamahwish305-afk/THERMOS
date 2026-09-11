@@ -3,7 +3,7 @@ import math
 def calculate_all_risk_metrics(ward_specific_wbgt, vulnerability_weight):
     # 1. Hazard Index & Risk Score
     hazard_index = min(50, max(0, (ward_specific_wbgt - 15) * 2))
-    scaling_factor = 1.2
+    scaling_factor = 2.0
     risk_score = min(100, hazard_index * vulnerability_weight * scaling_factor)
     
     # 2. Mortality Index (Scale 0-100)
