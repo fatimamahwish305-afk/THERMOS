@@ -143,6 +143,11 @@ def predict_wbgt_safely(features, target_date: datetime.datetime):
     Predicts WBGT safely with heuristic fallback and seasonal override.
     """
     if model is not None:
+        # Pre-process features: ensure humidity (column 1) is a percentage
+        # If the incoming humidity is in decimal form (0-1), multiply by 100
+        if features[0, 1] <= 1.0:
+            features[0, 1] *= 100.0
+            
         print(f"Incoming weather parameters for WBGT calculation: Temp={features[0,0]:.2f}°C, Humidity={features[0,1]:.2f}%, Wind={features[0,2]:.2f} m/s, Solar={features[0,3]:.2f} W/m^2")
 
         try:

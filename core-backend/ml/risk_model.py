@@ -9,7 +9,7 @@ def calculate_all_risk_metrics(ward_specific_wbgt, vulnerability_weight):
     # 2. Mortality Index (Scale 0-100)
     mortality_index = min(100, max(0, (ward_specific_wbgt - 20) * 4 * vulnerability_weight))
     
-    # 3. Resource Estimates (Risk Tiers)
+    # 3. Resource Estimates (Risk Tiers - 4 Tiers)
     if risk_score < 25:
         risk_tier = "Normal"
         beds_needed = 0
@@ -20,16 +20,11 @@ def calculate_all_risk_metrics(ward_specific_wbgt, vulnerability_weight):
         beds_needed = 10
         centers_to_activate = 2
         priority = "Medium"
-    elif risk_score < 65:
+    elif risk_score < 75:
         risk_tier = "High Risk"
-        beds_needed = 30
+        beds_needed = 50
         centers_to_activate = 3
         priority = "High"
-    elif risk_score < 85:
-        risk_tier = "Severe"
-        beds_needed = 75
-        centers_to_activate = 4
-        priority = "Very High"
     else:
         risk_tier = "Extreme"
         beds_needed = 150

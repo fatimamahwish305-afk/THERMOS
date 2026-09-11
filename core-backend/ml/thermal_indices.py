@@ -27,5 +27,11 @@ def estimate_globe_temperature(temp_c, wind_speed, solar_rad):
     tg = t + 0.025 * rad - 0.208 * wind
     return np.maximum(tg, t - 2.0)
 
-def compute_outdoor_wbgt(tw, tg, t_air):
+def compute_outdoor_wbgt(t_air, rh, wind_speed, solar_rad):
+    """
+    Unified WBGT computation: calculates Tw, Tg, then WBGT.
+    Ensures humidity is handled correctly for Stull's formula.
+    """
+    tw = calculate_wet_bulb_stull(t_air, rh)
+    tg = estimate_globe_temperature(t_air, wind_speed, solar_rad)
     return 0.6 * tw + 0.3 * tg + 0.1 * t_air
