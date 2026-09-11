@@ -299,11 +299,16 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             # Get features
             features = get_weather_features(current_date, request.temp_offset)
             
+            # Ensure relative humidity is a percentage (fix for WBGT calculation)
+            features[0, 1] = features[0, 1] * 100.0 if features[0, 1] <= 1.0 else features[0, 1]
+
             # Prediction
             prediction = predict_wbgt_safely(features, current_date)
             
             # Unified calculation
             risk_data = calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks)
+
+
             risk_data['forecast_day'] = i + 1
             results.append(risk_data)
             
