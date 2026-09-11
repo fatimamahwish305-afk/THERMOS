@@ -17,6 +17,9 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 
+from ml.risk_model import calculate_all_risk_metrics
+# (Also ensure ml is in the path or just import correctly)
+
 def convert_numpy_types(obj):
     """
     Recursively converts numpy types and pandas types to native Python types for JSON serialization.
@@ -262,39 +265,6 @@ async def get_heatwave_risk_by_ward(
     return convert_numpy_types({"ward_id": ward_id, "results": results})
 
 
-@app.get("/api/v1/heatwave-risk")
-async def get_heatwave_risk(
-    background_tasks: BackgroundTasks,
-    date: Optional[str] = Query(None, description="Target date (e.g. YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"),
-    ward_id: Optional[str] = Query(None, description="Ward ID (e.g. 80 or CANT_1)"),
-    temp_offset: float = Query(0.0, description="Temperature offset in degrees Celsius")
-):
-    try:
-        days_data = []
-        target_wards = wards_df.copy()
-        if ward_id:
-            target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == ward_id.strip()]
-            
-        start_date = pd.to_datetime(date) if date else historical_df['timestamp'].max()
-        
-        for i in range(5):
-            current_date = start_date + datetime.timedelta(days=i)
-            features = get_weather_features(current_date, temp_offset)
-            prediction = predict_wbgt_safely(features, current_date)
-            
-            day_results = []
-            for _, ward in target_wards.iterrows():
-                day_results.append(calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks))
-            
-            days_data.append({
-                "date": current_date.strftime("%Y-%m-%d"),
-                "results": day_results
-            })
-                
-        return convert_numpy_types({"data": days_data, "metadata": {"start_date": start_date, "days": 5, "temp_offset": temp_offset}})
-    except Exception as e:
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={'error': str(e), 'traceback': traceback.format_exc()})
 
 
 
@@ -410,79 +380,36 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
 def calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks):
     w_id = str(ward['ward_id'])
     w_name = ward['ward_name']
+    vulnerability_weight = float(ward['vulnerability_weight'])
     
-    # Using prediction for the ward (mocking that risk varies slightly by ward)
-    # Use a deterministic seed based on ward_id and date for reproducibility
+    # Deterministic WBGT variation
     seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
     seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
     rng = random.Random(seed)
     ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
     
-    # 2. Risk Calculation
-    try:
-        hazard_index = min(50, max(0, (ward_specific_wbgt - 15) * 2))
-        vulnerability_weight = float(ward['vulnerability_weight'])
-        scaling_factor = 1.2
-        risk_score = min(100, hazard_index * vulnerability_weight * scaling_factor)
-        
-        # 3. Resource Estimation
-        if risk_score < 25:
-            risk_tier = "Normal"
-            beds_needed = 0
-            centers_to_activate = 1
-            priority = "Low"
-        elif risk_score < 50:
-            risk_tier = "Caution"
-            beds_needed = 10
-            centers_to_activate = 2
-            priority = "Medium"
-        elif risk_score < 65:
-            risk_tier = "High Risk"
-            beds_needed = 30
-            centers_to_activate = 3
-            priority = "High"
-        elif risk_score < 85:
-            risk_tier = "Severe"
-            beds_needed = 75
-            centers_to_activate = 4
-            priority = "Very High"
-        else:
-            risk_tier = "Extreme"
-            beds_needed = 150
-            centers_to_activate = 6
-            priority = "Emergency"
-
-        # 4. Recommendations
-        recommendations = get_action_recommendations(w_id, risk_tier)
-        if risk_tier in ["High Risk", "Severe", "Extreme"]:
-            background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds_needed)
-    except Exception as e:
-        print(f"Error calculating risk for ward {w_id} on day {current_date}: {e}")
-        risk_score = 0.0
-        risk_tier = "N/A"
-        beds_needed = 0
-        centers_to_activate = 0
-        priority = "N/A"
-        recommendations = ActionRecommendations(
-            cooling_centers_to_activate=[],
-            labor_advisory="N/A",
-            healthcare_outreach="N/A",
-            sms_alert_dispatched=False
-        )
+    # Calculate Risk Metrics via unified engine
+    risk_data = calculate_all_risk_metrics(ward_specific_wbgt, vulnerability_weight)
     
+    # Recommendations
+    recommendations = get_action_recommendations(w_id, risk_data['risk_tier'])
+    if risk_data['risk_tier'] in ["High Risk", "Severe", "Extreme"]:
+        background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, risk_data['beds_needed'])
+    
+    # Prepare result
     return {
         "ward_id": w_id,
         "ward_name": w_name,
         "wbgt": round(float(ward_specific_wbgt), 2),
-        "risk_score": round(float(risk_score), 2),
-        "risk_tier": risk_tier,
-        "mortality_index": round(max(0, (ward_specific_wbgt - 20) * 0.05 * (vulnerability_weight / 0.5)), 2),
+        "risk_score": risk_data['risk_score'],
+        "risk_tier": risk_data['risk_tier'],
+        "mortality_index": risk_data['mortality_index'],
         "resource_estimates": {
-            "required_heat_stroke_beds": int(beds_needed) if risk_tier in ["High Risk", "Severe", "Extreme"] else 0,
-            "cooling_centers_count": int(centers_to_activate),
-            "ambulance_dispatch_priority": priority
+            "required_heat_stroke_beds": risk_data['beds_needed'],
+            "cooling_centers_count": risk_data['centers_to_activate'],
+            "ambulance_dispatch_priority": risk_data['priority']
         },
-        "action_recommendations": recommendations.dict()
+        "action_recommendations": recommendations.dict() if recommendations else {"cooling_centers_to_activate": [], "labor_advisory": "Normal operations", "healthcare_outreach": "Standard care", "sms_alert_dispatched": False}
     }
 
 
