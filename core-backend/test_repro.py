@@ -2,32 +2,31 @@ import pandas as pd
 from pathlib import Path
 import datetime
 import random
+import os
 
-# Mocking the historical_df loading for the test
-DATA_PATH = Path("delhi_processed_wbgt.csv")
+# Define the absolute path to the data
+BASE_DIR = Path(r"c:\Users\dell\urban-heat-engine-mvp\core-backend")
+DATA_PATH = BASE_DIR / "delhi_processed_wbgt.csv"
+
+# Handle potential missing file for the test
+if not DATA_PATH.exists():
+    print(f"File {DATA_PATH} not found.")
+    print(f"Current working directory: {os.getcwd()}")
+    # List files in BASE_DIR to see if it's there
+    if BASE_DIR.exists():
+        print(f"Files in {BASE_DIR}: {os.listdir(BASE_DIR)}")
+    exit(1)
+
 historical_df = pd.read_csv(DATA_PATH)
 historical_df['timestamp'] = pd.to_datetime(historical_df['timestamp'])
 
-def get_weather_features(target_date, temp_offset):
-    # Using the same logic as in main.py
-    min_ts = historical_df['timestamp'].min()
-    max_ts = historical_df['timestamp'].max()
+print("Temperature Statistics:")
+print(historical_df['temperature_2m'].describe())
 
-    if target_date < min_ts:
-        features = historical_df.iloc[0].copy()
-    elif target_date > max_ts:
-        features = historical_df.iloc[-1].copy()
-    elif target_date in historical_df['timestamp'].values:
-        features = historical_df[historical_df['timestamp'] == target_date].iloc[0].copy()
-    else:
-        idx = (historical_df['timestamp'] - target_date).abs().argsort().iloc[0]
-        features = historical_df.iloc[idx].copy()
-    
-    # ... (omitted temp offset application for brevity)
-    return features
+# Check May data
+may_data = historical_df[historical_df['timestamp'].dt.month == 5]
+print("\nMay Temperature Statistics:")
+print(may_data['temperature_2m'].describe())
 
-# Test for May 18, 2026
-target_date = pd.Timestamp("2026-05-18 12:00:00")
-features = get_weather_features(target_date, 0.0)
-print(f"Features for {target_date}:")
-print(features[['timestamp', 'calculated_wbgt', 'temperature_2m']])
+print("\nSample May Data (first 5 rows):")
+print(may_data.head())

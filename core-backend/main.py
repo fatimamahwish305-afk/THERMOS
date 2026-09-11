@@ -253,11 +253,11 @@ async def get_heatwave_risk_by_ward(
     if date:
         try:
             start_date = pd.to_datetime(date)
-            if pd.isna(start_date): start_date = historical_df['timestamp'].max()
+            if pd.isna(start_date): start_date = datetime.datetime.now()
         except:
-            start_date = historical_df['timestamp'].max()
+            start_date = datetime.datetime.now()
     else:
-        start_date = historical_df['timestamp'].max()
+        start_date = datetime.datetime.now()
         
     results = []
     for i in range(5):
@@ -280,6 +280,7 @@ class ForecastRequest(BaseModel):
     ward_id: str = ""
     days: int = 5
     temp_offset: float = 3.0
+    start_date: Optional[str] = None
 
 @app.post("/api/v1/forecast-heatwave")
 async def forecast_heatwave(request: ForecastRequest, background_tasks: BackgroundTasks):
@@ -294,7 +295,13 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == clean_ward_id]
         
         # 2. Determine start date
-        start_date = historical_df['timestamp'].max()
+        if request.start_date:
+            try:
+                start_date = pd.to_datetime(request.start_date)
+            except:
+                start_date = datetime.datetime.now()
+        else:
+            start_date = datetime.datetime.now()
         
         results = []
         
