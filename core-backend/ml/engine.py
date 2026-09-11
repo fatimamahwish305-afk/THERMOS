@@ -2,7 +2,14 @@ import hashlib
 import random
 from pydantic import BaseModel
 from typing import List
+from fastapi import BackgroundTasks
 from ml.risk_model import calculate_all_risk_metrics
+
+def send_notification(ward_id: str, wbgt: float, beds_needed: float):
+    # This is the non-blocking notification dispatcher
+    print(f"Notification triggered for Ward {ward_id}: WBGT {wbgt}, Beds Needed {beds_needed}")
+    # Integration with SMS gateway would go here
+    return True
 
 def get_action_recommendations(ward_id: str, risk_tier: str = "Normal"):
     class ActionRecommendations(BaseModel):
@@ -54,3 +61,24 @@ def compute_ward_risk(ward_id: str, ward_name: str, vulnerability_weight: float,
         },
         "action_recommendations": recommendations.dict()
     }
+
+def calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks: BackgroundTasks):
+    w_id = str(ward['ward_id'])
+    w_name = ward['ward_name']
+    vulnerability_weight = float(ward['vulnerability_weight'])
+    
+    # Deterministic WBGT variation
+    seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+    rng = random.Random(seed)
+    ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
+    
+    # Unified calculation via engine
+    risk_data = compute_ward_risk(w_id, w_name, vulnerability_weight, ward_specific_wbgt)
+    
+    # Notifications
+    if risk_data['risk_tier'] in ["High Risk", "Severe", "Extreme"]:
+        background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, risk_data['resource_estimates']['required_heat_stroke_beds'])
+        
+    return risk_data
+
