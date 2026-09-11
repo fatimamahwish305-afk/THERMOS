@@ -37,6 +37,16 @@ def compute_outdoor_wbgt(t_air, rh, wind_speed, solar_rad):
     Unified outdoor WBGT computation under direct sunlight (ISO 7243): 
     Calculates Tw, Tg, then applies 0.7/0.2/0.1 weighting.
     """
+    # Debug statements
+    try:
+        t_val = float(t_air[0]) if hasattr(t_air, '__getitem__') else float(t_air)
+        rh_val = float(rh[0]) if hasattr(rh, '__getitem__') else float(rh)
+        w_val = float(wind_speed[0]) if hasattr(wind_speed, '__getitem__') else float(wind_speed)
+        s_val = float(solar_rad[0]) if hasattr(solar_rad, '__getitem__') else float(solar_rad)
+        print(f"DEBUG compute_outdoor_wbgt: t_air={t_val:.2f}, rh={rh_val:.2f}, wind={w_val:.2f}, solar={s_val:.2f}")
+    except Exception as e:
+        print(f"DEBUG compute_outdoor_wbgt: Could not print inputs: {e}")
+
     tw = calculate_wet_bulb_stull(t_air, rh)
     tg = estimate_globe_temperature(t_air, wind_speed, solar_rad)
     return 0.7 * tw + 0.2 * tg + 0.1 * t_air
