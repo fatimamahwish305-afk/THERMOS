@@ -60,13 +60,13 @@ def estimate_globe_temperature(
 ) -> np.ndarray:
     """
     Estimates Globe Temperature (Tg in °C) using wind speed and solar radiation.
-    Tg = T_air + 0.017 * solar_radiation - 0.208 * wind_speed
+    Tg = T_air + 0.025 * solar_radiation - 0.208 * wind_speed
     """
     t = np.asarray(temp_c, dtype=np.float64)
     wind = np.clip(np.asarray(wind_speed, dtype=np.float64), 0.0, None)
     rad = np.clip(np.asarray(solar_rad, dtype=np.float64), 0.0, None)
 
-    tg = t + 0.017 * rad - 0.208 * wind
+    tg = t + 0.025 * rad - 0.208 * wind
     return np.maximum(tg, t - 2.0)
 
 
@@ -77,9 +77,9 @@ def compute_outdoor_wbgt(
 ) -> np.ndarray:
     """
     Computes Outdoor Wet-Bulb Globe Temperature (WBGT) index in °C:
-      calculated_wbgt = 0.7 * Tw + 0.2 * Tg + 0.1 * T_air
+      calculated_wbgt = 0.6 * Tw + 0.3 * Tg + 0.1 * T_air
     """
-    return 0.7 * tw + 0.2 * tg + 0.1 * t_air
+    return 0.6 * tw + 0.3 * tg + 0.1 * t_air
 
 
 def map_wbgt_to_category(wbgt_value: float) -> str:

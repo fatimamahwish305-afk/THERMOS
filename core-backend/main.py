@@ -66,7 +66,7 @@ def calculate_risk_metrics(wbgt: float, ward_id: str):
     additional_beds_needed = math.ceil((hospitalization_increase_pct / 100) * (density * 0.05))
     surge_probability = min(1.0, max(0, (wbgt - 25) * 0.05 + vulnerability * 0.3))
     
-    return hospitalization_increase_pct, additional_beds_needed, surge_probability
+    return round(float(hospitalization_increase_pct), 2), int(additional_beds_needed), round(float(surge_probability), 2)
 
 
 class ActionRecommendations(BaseModel):
@@ -380,11 +380,11 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                 "mortality_index": round(max(0, (ward_specific_wbgt - 20) * 0.05 * (vulnerability_weight / 0.5)), 2),
 
                 "resource_estimates": {
-                    "required_heat_stroke_beds": beds_needed if risk_tier in ["High Risk", "Extreme"] else None,
-                    "cooling_centers_count": centers_to_activate,
+                    "required_heat_stroke_beds": int(beds_needed) if risk_tier in ["High Risk", "Extreme"] else 0,
+                    "cooling_centers_count": int(centers_to_activate),
                     "ambulance_dispatch_priority": priority
                 },
-                "action_recommendations": recommendations.dict() if recommendations else None
+                "action_recommendations": recommendations.dict() if recommendations else []
             })
             
     return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
