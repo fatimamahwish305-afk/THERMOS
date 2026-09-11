@@ -377,6 +377,8 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                 "wbgt": round(float(ward_specific_wbgt), 2),
                 "risk_score": round(float(risk_score), 2),
                 "risk_tier": risk_tier,
+                "mortality_index": round(max(0, (ward_specific_wbgt - 20) * 0.05 * (vulnerability_weight / 0.5)), 2),
+
                 "resource_estimates": {
                     "required_heat_stroke_beds": beds_needed if risk_tier in ["High Risk", "Extreme"] else None,
                     "cooling_centers_count": centers_to_activate,

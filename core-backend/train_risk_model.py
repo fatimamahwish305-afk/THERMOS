@@ -60,13 +60,13 @@ def estimate_globe_temperature(
 ) -> np.ndarray:
     """
     Estimates Globe Temperature (Tg in °C) using wind speed and solar radiation.
-    Tg = T_air + 0.017 * solar_radiation - 0.208 * (wind_speed / 3.6)
+    Tg = T_air + 0.017 * solar_radiation - 0.208 * wind_speed
     """
     t = np.asarray(temp_c, dtype=np.float64)
     wind = np.clip(np.asarray(wind_speed, dtype=np.float64), 0.0, None)
     rad = np.clip(np.asarray(solar_rad, dtype=np.float64), 0.0, None)
 
-    tg = t + 0.017 * rad - 0.208 * (wind / 3.6)
+    tg = t + 0.017 * rad - 0.208 * wind
     return np.maximum(tg, t - 2.0)
 
 
