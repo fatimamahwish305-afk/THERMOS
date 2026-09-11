@@ -286,36 +286,43 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
     """
     Returns a multi-day forecast for the requested ward(s).
     """
-    # 1. Filter wards
-    target_wards = wards_df.copy()
-    if request.ward_id and str(request.ward_id).strip() != "":
-        clean_ward_id = str(request.ward_id).strip()
-        target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == clean_ward_id]
-    
-    # 2. Determine start date
-    start_date = historical_df['timestamp'].max()
-    
-    results = []
-    
-    # 3. Loop through wards and days
-    for _, ward in target_wards.iterrows():
-        for i in range(request.days):
-            current_date = start_date + datetime.timedelta(days=i)
-            
-            # Get features
-            features = get_weather_features(current_date, request.temp_offset)
+    try:
+        # 1. Filter wards
+        target_wards = wards_df.copy()
+        if request.ward_id and str(request.ward_id).strip() != "":
+            clean_ward_id = str(request.ward_id).strip()
+            target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == clean_ward_id]
+        
+        # 2. Determine start date
+        start_date = historical_df['timestamp'].max()
+        
+        results = []
+        
+        # 3. Loop through wards and days
+        for _, ward in target_wards.iterrows():
+            for i in range(request.days):
+                try:
+                    current_date = start_date + datetime.timedelta(days=i)
+                    
+                    # Get features
+                    features = get_weather_features(current_date, request.temp_offset)
 
-            # Prediction
-            prediction = predict_wbgt_safely(features, current_date)
-            
-            # Unified calculation
-            risk_data = calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks)
+                    # Prediction
+                    prediction = predict_wbgt_safely(features, current_date)
+                    
+                    # Unified calculation
+                    risk_data = calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks)
 
-
-            risk_data['forecast_day'] = i + 1
-            results.append(risk_data)
-            
-    return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
+                    risk_data['forecast_day'] = i + 1
+                    results.append(risk_data)
+                except Exception as e:
+                    print(f"Error processing ward {ward.get('ward_id')} for day {i}: {e}")
+                    continue
+                
+        return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
+    except Exception as e:
+        print(f"Critical error in forecast_heatwave: {e}")
+        return JSONResponse(status_code=500, content={"error": "Internal server error during forecast calculation"})
 
 
 
