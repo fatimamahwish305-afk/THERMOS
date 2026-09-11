@@ -3,6 +3,7 @@ from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
 import traceback
 
+import math
 import hashlib
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,7 +63,7 @@ def calculate_risk_metrics(wbgt: float, ward_id: str):
     factor = 1.0 + max(0, (wbgt - 30) * 0.5)
     hospitalization_increase_pct = max(0, (wbgt - 20) * vulnerability * (density / 10000) * factor)
     
-    additional_beds_needed = (hospitalization_increase_pct / 100) * (density * 0.05)
+    additional_beds_needed = math.ceil((hospitalization_increase_pct / 100) * (density * 0.05))
     surge_probability = min(1.0, max(0, (wbgt - 25) * 0.05 + vulnerability * 0.3))
     
     return hospitalization_increase_pct, additional_beds_needed, surge_probability
@@ -265,7 +266,7 @@ async def get_heatwave_risk(
                     "risk_level": risk_level,
                     # --- NEW FIELDS ---
                     "hospitalization_increase_pct": round(h_inc, 2),
-                    "additional_beds_needed": round(beds, 2),
+                    "additional_beds_needed": beds if risk_level in ["High Risk", "Extreme"] else None,
                     "surge_probability": round(surge, 2),
                     "action_recommendations": recommendations.dict() if recommendations else None
                 })
@@ -333,29 +334,29 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                 
                 # 3. Resource Estimation
                 if risk_score < 25:
-                    risk_tier = "Low"
+                    risk_tier = "Normal"
                     beds_needed = 0
                     centers_to_activate = 1
                     priority = "Low"
                 elif risk_score < 50:
-                    risk_tier = "Moderate"
+                    risk_tier = "Caution"
                     beds_needed = 10
                     centers_to_activate = 2
                     priority = "Medium"
                 elif risk_score < 75:
-                    risk_tier = "Severe"
+                    risk_tier = "High Risk"
                     beds_needed = 50
                     centers_to_activate = 3
                     priority = "High"
                 else:
-                    risk_tier = "Critical"
+                    risk_tier = "Extreme"
                     beds_needed = 100
                     centers_to_activate = 5
                     priority = "Emergency"
 
                 # 4. Recommendations
                 recommendations = None
-                if risk_tier in ["Severe", "Critical"]:
+                if risk_tier in ["High Risk", "Extreme"]:
                     recommendations = get_action_recommendations(w_id)
                     background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds_needed)
             except Exception as e:
@@ -375,7 +376,7 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                 "risk_score": round(float(risk_score), 2),
                 "risk_tier": risk_tier,
                 "resource_estimates": {
-                    "required_heat_stroke_beds": beds_needed,
+                    "required_heat_stroke_beds": beds_needed if risk_tier in ["High Risk", "Extreme"] else None,
                     "cooling_centers_count": centers_to_activate,
                     "ambulance_dispatch_priority": priority
                 },
