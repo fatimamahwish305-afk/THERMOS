@@ -217,6 +217,12 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
         if feat in features:
             features[feat] += temp_offset
             
+    # Ensure humidity features are scaled to percentage (0-100)
+    humidity_features = ['relative_humidity_2m', 'humidity_lag_24']
+    for feat in humidity_features:
+        if feat in features and features[feat] <= 1.0:
+            features[feat] *= 100.0
+            
     feature_cols = [
         "temperature_2m", "relative_humidity_2m", "wind_speed_10m", 
         "shortwave_radiation", "hour", "day_of_year", "month", 
@@ -298,9 +304,6 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             
             # Get features
             features = get_weather_features(current_date, request.temp_offset)
-            
-            # Ensure relative humidity is a percentage (fix for WBGT calculation)
-            features[0, 1] = features[0, 1] * 100.0 if features[0, 1] <= 1.0 else features[0, 1]
 
             # Prediction
             prediction = predict_wbgt_safely(features, current_date)
