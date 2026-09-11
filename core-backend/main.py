@@ -127,6 +127,8 @@ def predict_wbgt_safely(features):
     Predicts WBGT safely with heuristic fallback.
     """
     if model is not None:
+        print(f"Incoming weather parameters for WBGT calculation: Temp={features[0,0]:.2f}°C, Humidity={features[0,1]:.2f}%, Wind={features[0,2]:.2f} m/s, Solar={features[0,3]:.2f} W/m^2")
+
         try:
             return model.predict(features)[0]
         except Exception as e:
