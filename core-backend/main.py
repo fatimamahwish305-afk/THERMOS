@@ -255,7 +255,7 @@ async def get_heatwave_risk(
             features = get_weather_features(current_date, temp_offset)
             
             # Prediction
-            prediction = predict_wbgt_safely(features)
+            prediction = predict_wbgt_safely(features, current_date)
             
             day_results = []
             for _, ward in target_wards.iterrows():
