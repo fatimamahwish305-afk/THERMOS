@@ -295,9 +295,6 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
     
     # 3. Loop through wards and days
     for _, ward in target_wards.iterrows():
-        w_id = str(ward['ward_id'])
-        w_name = ward['ward_name']
-        
         for i in range(request.days):
             current_date = start_date + datetime.timedelta(days=i)
             
@@ -307,76 +304,10 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             # Prediction
             prediction = predict_wbgt_safely(features, current_date)
             
-            # Using prediction for the ward (mocking that risk varies slightly by ward)
-            # Use a deterministic seed based on ward_id and date for reproducibility
-            seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
-            seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
-            rng = random.Random(seed)
-            ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
-            
-            # 2. Risk Calculation
-            try:
-                hazard_index = min(50, max(0, (ward_specific_wbgt - 15) * 2))
-                vulnerability_weight = float(ward['vulnerability_weight'])
-                scaling_factor = 1.2
-                risk_score = min(100, hazard_index * vulnerability_weight * scaling_factor)
-                
-                # 3. Resource Estimation
-                if risk_score < 25:
-                    risk_tier = "Normal"
-                    beds_needed = 0
-                    centers_to_activate = 1
-                    priority = "Low"
-                elif risk_score < 50:
-                    risk_tier = "Caution"
-                    beds_needed = 10
-                    centers_to_activate = 2
-                    priority = "Medium"
-                elif risk_score < 65:
-                    risk_tier = "High Risk"
-                    beds_needed = 30
-                    centers_to_activate = 3
-                    priority = "High"
-                elif risk_score < 85:
-                    risk_tier = "Severe"
-                    beds_needed = 75
-                    centers_to_activate = 4
-                    priority = "Very High"
-                else:
-                    risk_tier = "Extreme"
-                    beds_needed = 150
-                    centers_to_activate = 6
-                    priority = "Emergency"
-
-                # 4. Recommendations
-                recommendations = get_action_recommendations(w_id, risk_tier)
-                if risk_tier in ["High Risk", "Severe", "Extreme"]:
-                    background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds_needed)
-            except Exception as e:
-                print(f"Error calculating risk for ward {w_id} on day {i+1}: {e}")
-                risk_score = 0.0
-                risk_tier = "N/A"
-                beds_needed = 0
-                centers_to_activate = 0
-                priority = "N/A"
-                recommendations = None
-            
-            results.append({
-                "ward_id": w_id,
-                "ward_name": w_name,
-                "forecast_day": i + 1,
-                "wbgt": round(float(ward_specific_wbgt), 2),
-                "risk_score": round(float(risk_score), 2),
-                "risk_tier": risk_tier,
-                "mortality_index": round(max(0, (ward_specific_wbgt - 20) * 0.05 * (vulnerability_weight / 0.5)), 2),
-
-                "resource_estimates": {
-                    "required_heat_stroke_beds": int(beds_needed) if risk_tier in ["High Risk", "Severe", "Extreme"] else 0,
-                    "cooling_centers_count": int(centers_to_activate),
-                    "ambulance_dispatch_priority": priority
-                },
-                "action_recommendations": recommendations.dict()
-            })
+            # Unified calculation
+            risk_data = calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks)
+            risk_data['forecast_day'] = i + 1
+            results.append(risk_data)
             
     return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
 
