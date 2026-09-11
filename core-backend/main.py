@@ -220,6 +220,48 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
     
     return features[feature_cols].values.reshape(1, -1)
 
+@app.get("/api/v1/heatwave-risk/{ward_id}")
+async def get_heatwave_risk_by_ward(
+    ward_id: str,
+    background_tasks: BackgroundTasks,
+    date: Optional[str] = Query(None, description="Target date (e.g. YYYY-MM-DD)"),
+    temp_offset: float = Query(0.0, description="Temperature offset in degrees Celsius")
+):
+    """
+    Returns a multi-day forecast for a specific ward.
+    """
+    target_wards = wards_df.copy()
+    ward_data = target_wards[target_wards['ward_id'].astype(str).str.strip() == ward_id.strip()]
+    
+    if ward_data.empty:
+        return JSONResponse(status_code=404, content={"error": f"Ward {ward_id} not found"})
+        
+    ward = ward_data.iloc[0]
+    
+    # Determine start date
+    if date:
+        try:
+            start_date = pd.to_datetime(date)
+            if pd.isna(start_date): start_date = historical_df['timestamp'].max()
+        except:
+            start_date = historical_df['timestamp'].max()
+    else:
+        start_date = historical_df['timestamp'].max()
+        
+    results = []
+    for i in range(5):
+        current_date = start_date + datetime.timedelta(days=i)
+        features = get_weather_features(current_date, temp_offset)
+        prediction = predict_wbgt_safely(features, current_date)
+        
+        results.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "data": calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks)
+        })
+        
+    return convert_numpy_types({"ward_id": ward_id, "results": results})
+
+
 @app.get("/api/v1/heatwave-risk")
 async def get_heatwave_risk(
     background_tasks: BackgroundTasks,
@@ -229,73 +271,20 @@ async def get_heatwave_risk(
 ):
     try:
         days_data = []
-        
-        # Filter wards if ward_id is provided
         target_wards = wards_df.copy()
         if ward_id:
-            clean_ward_id = str(ward_id).strip()
-            target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == clean_ward_id]
+            target_wards = target_wards[target_wards['ward_id'].astype(str).str.strip() == ward_id.strip()]
             
-        # Determine start date with robust exception handling for invalid date inputs
-        if date:
-            try:
-                start_date = pd.to_datetime(date)
-                if pd.isna(start_date):
-                    start_date = historical_df['timestamp'].max()
-            except (ValueError, TypeError, pd.errors.ParserError):
-                start_date = historical_df['timestamp'].max()
-        else:
-            start_date = historical_df['timestamp'].max()
+        start_date = pd.to_datetime(date) if date else historical_df['timestamp'].max()
         
-        # Loop through 5-day window
         for i in range(5):
             current_date = start_date + datetime.timedelta(days=i)
-            
-            # Get features
             features = get_weather_features(current_date, temp_offset)
-            
-            # Prediction
             prediction = predict_wbgt_safely(features, current_date)
             
             day_results = []
             for _, ward in target_wards.iterrows():
-                # Using prediction for the ward (mocking that risk varies slightly by ward)
-                # Use a deterministic seed based on ward_id and date for reproducibility
-                w_id = str(ward['ward_id'])
-                seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
-                seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
-                rng = random.Random(seed)
-                ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
-                
-                risk_level = "Extreme" if ward_specific_wbgt > 32 else "High Risk" if ward_specific_wbgt > 29 else "Caution" if ward_specific_wbgt > 27 else "Normal"
-                
-                # --- NEW LOGIC START ---
-                try:
-                    h_inc, beds, surge = calculate_risk_metrics(ward_specific_wbgt, w_id)
-                    
-                    recommendations = None
-                    if risk_level in ["High Risk", "Extreme"]:
-                        recommendations = get_action_recommendations(w_id)
-                        background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds)
-                except Exception as e:
-                    print(f"Error calculating risk metrics for ward {w_id}: {e}")
-                    h_inc, beds, surge = 0.0, 0.0, 0.0
-                    recommendations = None
-                # --- NEW LOGIC END ---
-                
-                day_results.append({
-                    "ward_id": w_id,
-                    "ward_name": ward['ward_name'],
-                    "wbgt": round(float(ward_specific_wbgt), 2),
-                    "thermal_stress_score": round(max(0, min(10, float(ward_specific_wbgt - 20))), 2),
-                    "heatwave_probability": round(max(0, min(1, float((ward_specific_wbgt - 25) / 10))), 2),
-                    "risk_level": risk_level,
-                    # --- NEW FIELDS ---
-                    "hospitalization_increase_pct": round(h_inc, 2),
-                    "additional_beds_needed": beds if risk_level in ["High Risk", "Extreme"] else None,
-                    "surge_probability": round(surge, 2),
-                    "action_recommendations": recommendations.dict() if recommendations else None
-                })
+                day_results.append(calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks))
             
             days_data.append({
                 "date": current_date.strftime("%Y-%m-%d"),
@@ -416,5 +405,84 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             })
             
     return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
+
+
+def calculate_ward_risk_metrics_full(ward, current_date, prediction, background_tasks):
+    w_id = str(ward['ward_id'])
+    w_name = ward['ward_name']
+    
+    # Using prediction for the ward (mocking that risk varies slightly by ward)
+    # Use a deterministic seed based on ward_id and date for reproducibility
+    seed_str = f"{w_id}_{current_date.strftime('%Y-%m-%d')}"
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (2**32)
+    rng = random.Random(seed)
+    ward_specific_wbgt = prediction + rng.uniform(-0.5, 0.5)
+    
+    # 2. Risk Calculation
+    try:
+        hazard_index = min(50, max(0, (ward_specific_wbgt - 15) * 2))
+        vulnerability_weight = float(ward['vulnerability_weight'])
+        scaling_factor = 1.2
+        risk_score = min(100, hazard_index * vulnerability_weight * scaling_factor)
+        
+        # 3. Resource Estimation
+        if risk_score < 25:
+            risk_tier = "Normal"
+            beds_needed = 0
+            centers_to_activate = 1
+            priority = "Low"
+        elif risk_score < 50:
+            risk_tier = "Caution"
+            beds_needed = 10
+            centers_to_activate = 2
+            priority = "Medium"
+        elif risk_score < 65:
+            risk_tier = "High Risk"
+            beds_needed = 30
+            centers_to_activate = 3
+            priority = "High"
+        elif risk_score < 85:
+            risk_tier = "Severe"
+            beds_needed = 75
+            centers_to_activate = 4
+            priority = "Very High"
+        else:
+            risk_tier = "Extreme"
+            beds_needed = 150
+            centers_to_activate = 6
+            priority = "Emergency"
+
+        # 4. Recommendations
+        recommendations = get_action_recommendations(w_id, risk_tier)
+        if risk_tier in ["High Risk", "Severe", "Extreme"]:
+            background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds_needed)
+    except Exception as e:
+        print(f"Error calculating risk for ward {w_id} on day {current_date}: {e}")
+        risk_score = 0.0
+        risk_tier = "N/A"
+        beds_needed = 0
+        centers_to_activate = 0
+        priority = "N/A"
+        recommendations = ActionRecommendations(
+            cooling_centers_to_activate=[],
+            labor_advisory="N/A",
+            healthcare_outreach="N/A",
+            sms_alert_dispatched=False
+        )
+    
+    return {
+        "ward_id": w_id,
+        "ward_name": w_name,
+        "wbgt": round(float(ward_specific_wbgt), 2),
+        "risk_score": round(float(risk_score), 2),
+        "risk_tier": risk_tier,
+        "mortality_index": round(max(0, (ward_specific_wbgt - 20) * 0.05 * (vulnerability_weight / 0.5)), 2),
+        "resource_estimates": {
+            "required_heat_stroke_beds": int(beds_needed) if risk_tier in ["High Risk", "Severe", "Extreme"] else 0,
+            "cooling_centers_count": int(centers_to_activate),
+            "ambulance_dispatch_priority": priority
+        },
+        "action_recommendations": recommendations.dict()
+    }
 
 

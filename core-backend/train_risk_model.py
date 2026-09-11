@@ -41,8 +41,12 @@ def calculate_wet_bulb_stull(temp_c: np.ndarray | pd.Series, rh_pct: np.ndarray 
          + 0.00391838 * (RH^1.5) * atan(0.023101 * RH)
          - 4.686035
     """
+    rh_input = np.asarray(rh_pct, dtype=np.float64)
+    # Ensure RH is treated as a percentage (0-100)
+    # If values are <= 1, assume they are fractions and multiply by 100
+    rh = np.where(rh_input <= 1.0, rh_input * 100.0, rh_input)
+    rh = np.clip(rh, 1.0, 100.0)
     t = np.asarray(temp_c, dtype=np.float64)
-    rh = np.clip(np.asarray(rh_pct, dtype=np.float64), 1.0, 100.0)
 
     term1 = t * np.arctan(0.151977 * np.sqrt(rh + 8.313659))
     term2 = np.arctan(t + rh)
