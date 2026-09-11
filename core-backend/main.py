@@ -17,6 +17,10 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from ml.risk_model import calculate_all_risk_metrics
 # (Also ensure ml is in the path or just import correctly)
 
