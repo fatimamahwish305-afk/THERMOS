@@ -23,15 +23,21 @@ def calculate_wet_bulb_stull(temp_c: np.ndarray | pd.Series, rh_pct: np.ndarray 
 def estimate_globe_temperature(temp_c, wind_speed, solar_rad):
     t = np.asarray(temp_c, dtype=np.float64)
     wind = np.clip(np.asarray(wind_speed, dtype=np.float64), 0.0, None)
-    rad = np.clip(np.asarray(solar_rad, dtype=np.float64), 0.0, None)
+    
+    # Handle missing or zeroed solar radiation defensively
+    rad_input = np.asarray(solar_rad, dtype=np.float64)
+    rad = np.where((rad_input <= 0.0) | np.isnan(rad_input), 500.0, rad_input) # Default daytime proxy if missing
+    rad = np.clip(rad, 0.0, 1200.0)
+    
     tg = t + 0.025 * rad - 0.208 * wind
     return np.maximum(tg, t - 2.0)
 
 def compute_outdoor_wbgt(t_air, rh, wind_speed, solar_rad):
     """
-    Unified WBGT computation: calculates Tw, Tg, then WBGT.
-    Ensures humidity is handled correctly for Stull's formula.
+    Unified outdoor WBGT computation under direct sunlight (ISO 7243): 
+    Calculates Tw, Tg, then applies 0.7/0.2/0.1 weighting.
     """
     tw = calculate_wet_bulb_stull(t_air, rh)
     tg = estimate_globe_temperature(t_air, wind_speed, solar_rad)
-    return 0.6 * tw + 0.3 * tg + 0.1 * t_air
+    return 0.7 * tw + 0.2 * tg + 0.1 * t_air
+
