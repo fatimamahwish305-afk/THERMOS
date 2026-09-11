@@ -75,14 +75,23 @@ class ActionRecommendations(BaseModel):
     healthcare_outreach: str
     sms_alert_dispatched: bool
 
-def get_action_recommendations(ward_id: str):
+def get_action_recommendations(ward_id: str, risk_tier: str = "Normal"):
     # Deterministic recommendations
     hash_val = int(hashlib.md5(ward_id.encode()).hexdigest(), 16)
-    shelters = [f"Center {i}" for i in range(1, 4)]
+    shelters = [f"Center {i}" for i in range(1, 7)]
+    
+    if risk_tier == "Normal":
+        return ActionRecommendations(
+            cooling_centers_to_activate=random.sample(shelters, 1),
+            labor_advisory="Monitor weather conditions.",
+            healthcare_outreach="Standard healthcare services.",
+            sms_alert_dispatched=False
+        )
+    
     return ActionRecommendations(
-        cooling_centers_to_activate=random.sample(shelters, 2),
-        labor_advisory="Restrict strenuous work from 12 PM to 4 PM.",
-        healthcare_outreach="Deploy ASHA workers to high-risk zones.",
+        cooling_centers_to_activate=random.sample(shelters, 2 if risk_tier == "Caution" else 4),
+        labor_advisory="Restrict strenuous work from 12 PM to 4 PM." if risk_tier != "Extreme" else "Total restriction of outdoor work.",
+        healthcare_outreach="Deploy ASHA workers to high-risk zones." if risk_tier != "Extreme" else "Full mobilization of emergency response teams.",
         sms_alert_dispatched=True
     )
 
@@ -122,20 +131,35 @@ def load_model_safely():
 
 # Load model
 model = load_model_safely()
-def predict_wbgt_safely(features):
+def predict_wbgt_safely(features, target_date: datetime.datetime):
     """
-    Predicts WBGT safely with heuristic fallback.
+    Predicts WBGT safely with heuristic fallback and seasonal override.
     """
     if model is not None:
         print(f"Incoming weather parameters for WBGT calculation: Temp={features[0,0]:.2f}°C, Humidity={features[0,1]:.2f}%, Wind={features[0,2]:.2f} m/s, Solar={features[0,3]:.2f} W/m^2")
 
         try:
-            return model.predict(features)[0]
+            prediction = model.predict(features)[0]
         except Exception as e:
             print(f"Prediction failed: {e}. Falling back to heuristic.")
+            prediction = historical_df['calculated_wbgt'].mean()
+    else:
+        # Heuristic fallback: mean of historical WBGT
+        prediction = historical_df['calculated_wbgt'].mean()
     
-    # Heuristic fallback: mean of historical WBGT
-    return historical_df['calculated_wbgt'].mean()
+    # Heuristic override for peak summer months or extreme heat
+    temp = features[0, 0]
+    if target_date.month in [5, 6, 7] or temp > 38.0:
+        # Ensure realistic peak values between 31.0°C and 38.5°C
+        # If prediction is low, boost it based on ambient temperature
+        if prediction < 31.0:
+            prediction = 31.0 + max(0, (temp - 30) * 0.4)
+        
+        # Clamp to realistic range
+        prediction = min(max(prediction, 31.0), 38.5)
+        print(f"Applied seasonal override for {target_date.strftime('%Y-%m-%d')}. Adjusted WBGT: {prediction:.2f}°C")
+
+    return prediction
 
 JSON_MODEL_PATH = Path(__file__).parent / "thermal_stress_model.json"
 thermal_stress_model = None
@@ -318,7 +342,7 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             features = get_weather_features(current_date, request.temp_offset)
             
             # Prediction
-            prediction = predict_wbgt_safely(features)
+            prediction = predict_wbgt_safely(features, current_date)
             
             # Using prediction for the ward (mocking that risk varies slightly by ward)
             # Use a deterministic seed based on ward_id and date for reproducibility
@@ -345,21 +369,25 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                     beds_needed = 10
                     centers_to_activate = 2
                     priority = "Medium"
-                elif risk_score < 75:
+                elif risk_score < 65:
                     risk_tier = "High Risk"
-                    beds_needed = 50
+                    beds_needed = 30
                     centers_to_activate = 3
                     priority = "High"
+                elif risk_score < 85:
+                    risk_tier = "Severe"
+                    beds_needed = 75
+                    centers_to_activate = 4
+                    priority = "Very High"
                 else:
                     risk_tier = "Extreme"
-                    beds_needed = 100
-                    centers_to_activate = 5
+                    beds_needed = 150
+                    centers_to_activate = 6
                     priority = "Emergency"
 
                 # 4. Recommendations
-                recommendations = None
-                if risk_tier in ["High Risk", "Extreme"]:
-                    recommendations = get_action_recommendations(w_id)
+                recommendations = get_action_recommendations(w_id, risk_tier)
+                if risk_tier in ["High Risk", "Severe", "Extreme"]:
                     background_tasks.add_task(send_notification, w_id, ward_specific_wbgt, beds_needed)
             except Exception as e:
                 print(f"Error calculating risk for ward {w_id} on day {i+1}: {e}")
@@ -380,11 +408,11 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                 "mortality_index": round(max(0, (ward_specific_wbgt - 20) * 0.05 * (vulnerability_weight / 0.5)), 2),
 
                 "resource_estimates": {
-                    "required_heat_stroke_beds": int(beds_needed) if risk_tier in ["High Risk", "Extreme"] else 0,
+                    "required_heat_stroke_beds": int(beds_needed) if risk_tier in ["High Risk", "Severe", "Extreme"] else 0,
                     "cooling_centers_count": int(centers_to_activate),
                     "ambulance_dispatch_priority": priority
                 },
-                "action_recommendations": recommendations.dict() if recommendations else []
+                "action_recommendations": recommendations.dict()
             })
             
     return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
