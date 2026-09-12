@@ -2,10 +2,8 @@ from fastapi import FastAPI, Query
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
 import traceback
-
 import math
 import hashlib
-
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
@@ -15,13 +13,50 @@ import datetime
 import random
 import numpy as np
 from pydantic import BaseModel, Field
-
-
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import threading
+from apscheduler.schedulers.background import BackgroundScheduler
 
+# ... (rest of imports)
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from ml.engine import compute_ward_risk, calculate_ward_risk_metrics_full
+from pull_weather_data import fetch_forecast_data, build_dataframe, FORECAST_OUTPUT_FILE
+
+# Global variable to store last refresh time
+last_refresh_time = None
+refresh_lock = threading.Lock()
+forecast_df = None
+
+# ---------------------------------------------------------------------------
+# Weather Refresh Logic
+# ---------------------------------------------------------------------------
+def refresh_weather_data():
+    """Scheduled task to refresh forecast data."""
+    global last_refresh_time, forecast_df
+    print(f"[{datetime.datetime.now()}] Starting scheduled weather data refresh...")
+    try:
+        payload = fetch_forecast_data()
+        df = build_dataframe(payload)
+        df.to_csv(FORECAST_OUTPUT_FILE, index=False)
+        
+        # Reload into memory
+        with refresh_lock:
+            forecast_df = df
+            last_refresh_time = datetime.datetime.now()
+            
+        print(f"[{last_refresh_time}] Successfully refreshed weather data.")
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] ERROR refreshing weather data: {e}")
+
+# Initialize Scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(refresh_weather_data, 'interval', hours=1)
+scheduler.start()
+
+# Manually trigger initial fetch
+refresh_weather_data()
 
 def convert_numpy_types(obj):
     """
@@ -103,6 +138,7 @@ FORECAST_DATA_PATH = Path(__file__).parent / "delhi_forecast_meteorology.csv"
 if FORECAST_DATA_PATH.exists():
     forecast_df = pd.read_csv(FORECAST_DATA_PATH)
     forecast_df['timestamp'] = pd.to_datetime(forecast_df['timestamp'])
+    last_refresh_time = datetime.datetime.fromtimestamp(os.path.getmtime(FORECAST_DATA_PATH))
 else:
     forecast_df = None
 
@@ -311,7 +347,7 @@ async def get_heatwave_risk_by_ward(
 class ForecastRequest(BaseModel):
     ward_id: str = ""
     days: int = 5
-    temp_offset: float = 3.0
+    temp_offset: float = 0.0
     start_date: Optional[str] = None
 
 @app.post("/api/v1/forecast-heatwave")
@@ -358,7 +394,14 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
                     print(f"Error processing ward {ward.get('ward_id')} for day {i}: {e}")
                     continue
                 
-        return convert_numpy_types({"data": results, "metadata": {"days": request.days, "temp_offset": request.temp_offset}})
+        return convert_numpy_types({
+            "data": results, 
+            "metadata": {
+                "days": request.days, 
+                "temp_offset": request.temp_offset,
+                "data_as_of": last_refresh_time.isoformat() if last_refresh_time else None
+            }
+        })
     except Exception as e:
         print(f"Critical error in forecast_heatwave: {e}")
         return JSONResponse(status_code=500, content={"error": "Internal server error during forecast calculation"})
