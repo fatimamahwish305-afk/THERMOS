@@ -32,12 +32,8 @@ def fetch_data(url: str, params: dict) -> dict:
     """Generic function to call Open-Meteo API."""
     print(f"Requesting weather data from {url}...")
     
-    try:
-        response = requests.get(url, params=params, timeout=60)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as exc:
-        print(f"ERROR: Failed to fetch data: {exc}", file=sys.stderr)
-        sys.exit(1)
+    response = requests.get(url, params=params, timeout=60)
+    response.raise_for_status()
 
     return response.json()
 

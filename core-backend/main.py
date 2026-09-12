@@ -10,6 +10,7 @@ import pandas as pd
 from typing import Optional, Union, List
 from pathlib import Path
 import datetime
+import time
 import random
 import numpy as np
 from pydantic import BaseModel, Field
@@ -36,19 +37,31 @@ def refresh_weather_data():
     """Scheduled task to refresh forecast data."""
     global last_refresh_time, forecast_df
     print(f"[{datetime.datetime.now()}] Starting scheduled weather data refresh...")
-    try:
-        payload = fetch_forecast_data()
-        df = build_dataframe(payload)
-        df.to_csv(FORECAST_OUTPUT_FILE, index=False)
-        
-        # Reload into memory
-        with refresh_lock:
-            forecast_df = df
-            last_refresh_time = datetime.datetime.now()
+    
+    max_retries = 3
+    backoff_time = 60 # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            payload = fetch_forecast_data()
+            df = build_dataframe(payload)
+            df.to_csv(FORECAST_OUTPUT_FILE, index=False)
             
-        print(f"[{last_refresh_time}] Successfully refreshed weather data.")
-    except Exception as e:
-        print(f"[{datetime.datetime.now()}] ERROR refreshing weather data: {e}")
+            # Reload into memory
+            with refresh_lock:
+                forecast_df = df
+                last_refresh_time = datetime.datetime.now()
+                
+            print(f"[{last_refresh_time}] Successfully refreshed weather data.")
+            return # Success
+        except Exception as e:
+            print(f"[{datetime.datetime.now()}] ERROR refreshing weather data (attempt {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {backoff_time} seconds...")
+                time.sleep(backoff_time)
+                backoff_time *= 2 # Exponential backoff
+            else:
+                print("Max retries reached. Will try again in the next scheduled interval.")
 
 # Initialize Scheduler
 scheduler = BackgroundScheduler()
