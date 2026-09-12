@@ -240,7 +240,14 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
     Fetches or simulates weather features for a given date with robust fallback and out-of-bounds handling.
     """
     # Use forecast data if available and target_date is in the future
-    if forecast_df is not None and target_date > pd.Timestamp.now():
+    # Ensure both sides are naive before comparing calendar dates
+    ist_now_naive = pd.Timestamp.now(tz='Asia/Kolkata').tz_localize(None).normalize()
+    
+    target_date_ts = pd.to_datetime(target_date)
+    # If the target_date is aware, strip it; if it's already naive, leave it alone
+    target_date_naive = target_date_ts.tz_localize(None).normalize() if target_date_ts.tz is not None else target_date_ts.normalize()
+    
+    if forecast_df is not None and target_date_naive >= ist_now_naive:
         # Try to find a match in forecast_df
         match = forecast_df[
             (forecast_df['timestamp'].dt.date == target_date.date()) & 
@@ -412,7 +419,8 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             "metadata": {
                 "days": request.days, 
                 "temp_offset": request.temp_offset,
-                "data_as_of": last_refresh_time.isoformat() if last_refresh_time else None
+                "data_as_of": last_refresh_time.isoformat() if last_refresh_time else None,
+                "data_fetched_at": last_refresh_time.isoformat() if last_refresh_time else None
             }
         })
     except Exception as e:
