@@ -1,11 +1,11 @@
-[PROJECT NAME]
+[HEATGUARD]
 
 A GIS-integrated, ward-level early warning and public health defense system designed to mitigate extreme heatwave vulnerabilities and prevent municipal hospital surges.
 
 📌 Project Overview
 Extreme urban heatwaves are no longer just meteorological events—they are critical public health crises. Traditional weather forecasts look only at raw air temperature, failing to capture the true physiological strain on the human body.
 
-[PROJECT NAME] bridges this gap by shifting the paradigm from passive weather tracking to proactive human protection. Operating at a granular, ward-level resolution, our system combines advanced environmental indices (WBGT, UTCI, and Heat Index) with predictive clinical analytics to safeguard urban populations and optimize municipal emergency response.
+[HEATGUARD] bridges this gap by shifting the paradigm from passive weather tracking to proactive human protection. Operating at a granular, ward-level resolution, our system combines advanced environmental indices (WBGT, UTCI, and Heat Index) with predictive clinical analytics to safeguard urban populations and optimize municipal emergency response.
 
 🚀 Key Features & Capabilities
 
