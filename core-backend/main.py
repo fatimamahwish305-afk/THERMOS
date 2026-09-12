@@ -12,6 +12,7 @@ from pathlib import Path
 import datetime
 import time
 import random
+from zoneinfo import ZoneInfo
 import numpy as np
 from pydantic import BaseModel, Field
 import sys
@@ -419,8 +420,8 @@ async def forecast_heatwave(request: ForecastRequest, background_tasks: Backgrou
             "metadata": {
                 "days": request.days, 
                 "temp_offset": request.temp_offset,
-                "data_as_of": last_refresh_time.isoformat() if last_refresh_time else None,
-                "data_fetched_at": last_refresh_time.isoformat() if last_refresh_time else None
+                "data_as_of": datetime.datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                "data_fetched_at": datetime.datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
             }
         })
     except Exception as e:
