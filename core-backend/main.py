@@ -98,6 +98,14 @@ def get_action_recommendations(ward_id: str, risk_tier: str = "Normal"):
 # Load data for historical/future lookups
 DATA_PATH = Path(__file__).parent / "delhi_processed_wbgt.csv"
 historical_df = pd.read_csv(DATA_PATH)
+# Load forecast data
+FORECAST_DATA_PATH = Path(__file__).parent / "delhi_forecast_meteorology.csv"
+if FORECAST_DATA_PATH.exists():
+    forecast_df = pd.read_csv(FORECAST_DATA_PATH)
+    forecast_df['timestamp'] = pd.to_datetime(forecast_df['timestamp'])
+else:
+    forecast_df = None
+
 historical_df['timestamp'] = pd.to_datetime(historical_df['timestamp'])
 app = FastAPI()
 
@@ -182,32 +190,23 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
     """
     Fetches or simulates weather features for a given date with robust fallback and out-of-bounds handling.
     """
-    # 1. Try to find a match for the same month, and hour in any available year
-    potential_matches = historical_df[
-        (historical_df['month'] == target_date.month) & 
-        (historical_df['hour'] == target_date.hour)
-    ]
-    if not potential_matches.empty:
-        features = potential_matches.iloc[-1].copy()
-    else:
-        # Fallback to existing logic
-        min_ts = historical_df['timestamp'].min()
-        max_ts = historical_df['timestamp'].max()
-
-        # Out-of-bounds handling
-        if target_date < min_ts:
-            # Fallback to earliest available data for past out-of-bounds dates
-            features = historical_df.iloc[0].copy()
-        elif target_date > max_ts:
-            # Fallback to latest available data for future out-of-bounds dates
-            features = historical_df.iloc[-1].copy()
-        elif target_date in historical_df['timestamp'].values:
-            features = historical_df[historical_df['timestamp'] == target_date].iloc[0].copy()
+    # Use forecast data if available and target_date is in the future
+    if forecast_df is not None and target_date > pd.Timestamp.now():
+        # Try to find a match in forecast_df
+        match = forecast_df[
+            (forecast_df['timestamp'].dt.date == target_date.date()) & 
+            (forecast_df['hour'] == target_date.hour)
+        ]
+        if not match.empty:
+            features = match.iloc[0].copy()
+            # ... (continue with offset/scaling logic below)
         else:
-            # Nearest neighbor fallback for missing intermediate dates
-            idx = (historical_df['timestamp'] - target_date).abs().argsort().iloc[0]
-            features = historical_df.iloc[idx].copy()
-    
+            # Fallback to historical if forecast doesn't cover this date
+            features = _get_historical_features(target_date)
+    else:
+        # Fallback to historical
+        features = _get_historical_features(target_date)
+        
     # Feature set for model:
     # ["temperature_2m","relative_humidity_2m","wind_speed_10m","shortwave_radiation","hour","day_of_year","month","temp_lag_24","humidity_lag_24"]
     
@@ -229,7 +228,40 @@ def get_weather_features(target_date: pd.Timestamp, temp_offset: float):
         "temp_lag_24", "humidity_lag_24"
     ]
     
+    # Handle missing lags if not in forecast
+    for col in ["temp_lag_24", "humidity_lag_24"]:
+        if col not in features:
+            features[col] = 0.0 # Default value
+            
     return features[feature_cols].values.reshape(1, -1)
+
+def _get_historical_features(target_date: pd.Timestamp):
+    """Helper to get features from historical data."""
+    # 1. Try to find a match for the same month, and hour in any available year
+    potential_matches = historical_df[
+        (historical_df['month'] == target_date.month) & 
+        (historical_df['hour'] == target_date.hour)
+    ]
+    if not potential_matches.empty:
+        return potential_matches.iloc[-1].copy()
+    else:
+        # Fallback to existing logic
+        min_ts = historical_df['timestamp'].min()
+        max_ts = historical_df['timestamp'].max()
+
+        # Out-of-bounds handling
+        if target_date < min_ts:
+            # Fallback to earliest available data for past out-of-bounds dates
+            return historical_df.iloc[0].copy()
+        elif target_date > max_ts:
+            # Fallback to latest available data for future out-of-bounds dates
+            return historical_df.iloc[-1].copy()
+        elif target_date in historical_df['timestamp'].values:
+            return historical_df[historical_df['timestamp'] == target_date].iloc[0].copy()
+        else:
+            # Nearest neighbor fallback for missing intermediate dates
+            idx = (historical_df['timestamp'] - target_date).abs().argsort().iloc[0]
+            return historical_df.iloc[idx].copy()
 
 @app.get("/api/v1/heatwave-risk/{ward_id}")
 async def get_heatwave_risk_by_ward(

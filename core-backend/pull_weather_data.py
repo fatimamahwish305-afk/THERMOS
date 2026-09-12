@@ -1,21 +1,5 @@
-"""
-pull_weather_data.py
-
-Fetches 5 years (2020-01-01 to 2025-12-31) of historical hourly weather data
-for New Delhi from the Open-Meteo Historical Weather (Archive) API and saves
-it to a CSV file for use in the Urban Heat Engine ML pipeline.
-
-Variables pulled:
-    - temperature_2m
-    - relative_humidity_2m
-    - wind_speed_10m
-    - shortwave_radiation
-
-Usage:
-    python pull_weather_data.py
-"""
-
 import sys
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -24,13 +8,15 @@ import requests
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-API_URL = "https://archive-api.open-meteo.com/v1/archive"
+HISTORICAL_API_URL = "https://archive-api.open-meteo.com/v1/archive"
+FORECAST_API_URL = "https://api.open-meteo.com/v1/forecast"
 
 LATITUDE = 28.6139
 LONGITUDE = 77.2090
 
-START_DATE = "2020-01-01"
-END_DATE = "2025-12-31"
+# Historical params
+HIST_START_DATE = "2020-01-01"
+HIST_END_DATE = "2025-12-31"
 
 HOURLY_VARIABLES = [
     "temperature_2m",
@@ -39,34 +25,44 @@ HOURLY_VARIABLES = [
     "shortwave_radiation",
 ]
 
-OUTPUT_FILE = Path(__file__).resolve().parent / "delhi_historical_meteorology.csv"
+HIST_OUTPUT_FILE = Path(__file__).resolve().parent / "delhi_historical_meteorology.csv"
+FORECAST_OUTPUT_FILE = Path(__file__).resolve().parent / "delhi_forecast_meteorology.csv"
 
-REQUEST_PARAMS = {
-    "latitude": LATITUDE,
-    "longitude": LONGITUDE,
-    "start_date": START_DATE,
-    "end_date": END_DATE,
-    "hourly": ",".join(HOURLY_VARIABLES),
-    "timezone": "Asia/Kolkata",
-}
-
-
-def fetch_weather_data(url: str, params: dict) -> dict:
-    """Call the Open-Meteo Archive API and return the parsed JSON response."""
-    print(f"Requesting historical weather data from Open-Meteo API...")
-    print(f"  Location : New Delhi (lat={params['latitude']}, lon={params['longitude']})")
-    print(f"  Period   : {params['start_date']} to {params['end_date']}")
-    print(f"  Variables: {params['hourly']}")
-
+def fetch_data(url: str, params: dict) -> dict:
+    """Generic function to call Open-Meteo API."""
+    print(f"Requesting weather data from {url}...")
+    
     try:
         response = requests.get(url, params=params, timeout=60)
         response.raise_for_status()
     except requests.exceptions.RequestException as exc:
-        print(f"ERROR: Failed to fetch data from Open-Meteo API: {exc}", file=sys.stderr)
+        print(f"ERROR: Failed to fetch data: {exc}", file=sys.stderr)
         sys.exit(1)
 
     return response.json()
 
+def fetch_historical_data():
+    params = {
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
+        "start_date": HIST_START_DATE,
+        "end_date": HIST_END_DATE,
+        "hourly": ",".join(HOURLY_VARIABLES),
+        "timezone": "Asia/Kolkata",
+    }
+    payload = fetch_data(HISTORICAL_API_URL, params)
+    return payload
+
+def fetch_forecast_data():
+    params = {
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
+        "hourly": ",".join(HOURLY_VARIABLES),
+        "timezone": "Asia/Kolkata",
+        "forecast_days": 7,
+    }
+    payload = fetch_data(FORECAST_API_URL, params)
+    return payload
 
 def build_dataframe(payload: dict) -> pd.DataFrame:
     """Convert the API's 'hourly' block into a pandas DataFrame."""
@@ -79,20 +75,33 @@ def build_dataframe(payload: dict) -> pd.DataFrame:
     df = pd.DataFrame(hourly)
     df.rename(columns={"time": "timestamp"}, inplace=True)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
+    
+    # Add hour, month, day_of_year for compatibility with ML model
+    df["hour"] = df["timestamp"].dt.hour
+    df["month"] = df["timestamp"].dt.month
+    df["day_of_year"] = df["timestamp"].dt.dayofyear
+    
     return df
 
-
 def main():
-    payload = fetch_weather_data(API_URL, REQUEST_PARAMS)
+    parser = argparse.ArgumentParser(description="Fetch weather data for Delhi.")
+    parser.add_argument("--type", choices=["historical", "forecast"], default="historical", help="Data type to fetch.")
+    args = parser.parse_args()
+
+    if args.type == "historical":
+        payload = fetch_historical_data()
+        output_file = HIST_OUTPUT_FILE
+    else:
+        payload = fetch_forecast_data()
+        output_file = FORECAST_OUTPUT_FILE
+
     df = build_dataframe(payload)
+    df.to_csv(output_file, index=False)
 
-    df.to_csv(OUTPUT_FILE, index=False)
-
-    print(f"\nSuccess! Saved {len(df):,} hourly records to: {OUTPUT_FILE}")
+    print(f"\nSuccess! Saved {len(df):,} hourly records to: {output_file}")
     print(f"Date range: {df['timestamp'].min()} -> {df['timestamp'].max()}")
     print("\nPreview:")
     print(df.head())
-
 
 if __name__ == "__main__":
     main()
