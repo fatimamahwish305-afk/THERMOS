@@ -9,17 +9,10 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies directly
-RUN pip install --no-cache-dir \
-    fastapi \
-    uvicorn \
-    joblib \
-    pandas \
-    numpy \
-    pydantic \
-    xgboost \
-    scikit-learn \
-    matplotlib
+# Install python dependencies
+# Copy requirements first to leverage docker cache
+COPY core-backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the core-backend directory contents into the container at /app/core-backend
 COPY core-backend /app/core-backend
